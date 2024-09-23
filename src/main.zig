@@ -6,7 +6,10 @@ const c = @cImport({
 });
 
 const func_send_packet_raw = 0xDD2DD0;
+const func_send_packet = 0xDD2AE0;
+
 var original_send_send_packet_raw: @TypeOf(&sendPacketRaw) = undefined;
+var original_send_send_packet: @TypeOf(&sendPacket) = undefined;
 
 pub fn main() !void {
 
@@ -16,7 +19,7 @@ pub fn main() !void {
     //const allocator = gpa.allocator();
 
     const module_info = try windows.GetModuleInformation(windows.GetCurrentProcess(), try windows.GetModuleHandleA(null));
-    const address = try getSendPacketRawAddress(module_info);
+    const base: usize = @intFromPtr(module_info.lpBaseOfDll);
 
     try patchIntegrityCheck(module_info);
 
@@ -26,15 +29,16 @@ pub fn main() !void {
     defer _ = c.MH_Uninitialize();
 
     // removing consts
-    if (c.MH_CreateHook(@as(*anyopaque, @ptrFromInt(address)), @ptrFromInt(@intFromPtr(&sendPacketRaw)), @ptrFromInt(@intFromPtr(&original_send_send_packet_raw))) != c.MH_OK) {
+    if (c.MH_CreateHook(@as(*anyopaque, @ptrFromInt(base + func_send_packet_raw)), @ptrFromInt(@intFromPtr(&sendPacketRaw)), @ptrFromInt(@intFromPtr(&original_send_send_packet_raw))) != c.MH_OK) {
         return error.MinHookCreateHook;
     }
 
+    if (c.MH_CreateHook(@as(*anyopaque, @ptrFromInt(base + func_send_packet)), @ptrFromInt(@intFromPtr(&sendPacket)), @ptrFromInt(@intFromPtr(&original_send_send_packet))) != c.MH_OK) {
+        return error.MinHookCreateHook;
+    }
     defer _ = c.MH_RemoveHook(c.MH_ALL_HOOKS);
 
-    const status = c.MH_EnableHook(c.MH_ALL_HOOKS);
-    if (status != c.MH_OK) {
-        std.debug.print("{s}\n", .{c.MH_StatusToString(status)}); // todo add like trys
+    if (c.MH_EnableHook(c.MH_ALL_HOOKS) != c.MH_OK) {
         return error.MinHokkEnableHook;
     }
     defer _ = c.MH_DisableHook(c.MH_ALL_HOOKS);
@@ -100,8 +104,15 @@ fn stringToBytes(comptime pattern: []const u8) *const [countStringToBytes(patter
 }
 
 fn sendPacketRaw(packet_type: i32, packet_data: *anyopaque, packet_len: u32, unknown: *anyopaque, peer: *anyopaque, flags: u32) callconv(.C) void {
-    std.debug.print("sending packet\n", .{});
+    std.debug.print("sending packet type: {d}, len: {d}\n", .{ packet_type, packet_len });
     return original_send_send_packet_raw(packet_type, packet_data, packet_len, unknown, peer, flags);
+}
+
+fn sendPacket(packet_type: i32, cpp_str: *anyopaque, peer: *anyopaque) void {
+    const data = getCPPStr(@intFromPtr(cpp_str));
+    //std.debug.print("sending packet type: {d}, data:\n{s}\n", .{ packet_type, data });
+    std.debug.print("sending packet type: {d}, data:\n{s}\n", .{ packet_type, data });
+    return original_send_send_packet(packet_type, cpp_str, peer);
 }
 
 fn getSendPacketRawAddress(module_info: windows.MODULEINFO) !usize {
