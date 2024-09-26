@@ -7,6 +7,8 @@ const win = std.os.windows;
 pub const d3d11 = @import("d3d11/d3d11.zig");
 pub usingnamespace win;
 
+pub const GetAsyncKeyState = user32.GetAsyncKeyState;
+
 pub const DisableThreadLibraryCallsError = error{Unexpected};
 
 pub fn DisableThreadLibraryCalls(hLibModule: win.HMODULE) DisableThreadLibraryCallsError!void {

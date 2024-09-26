@@ -5,13 +5,37 @@ const c = @cImport({
     @cInclude("MinHook.h");
 });
 
-const func_send_packet_raw = 0xDD2DD0;
-const func_send_packet = 0xDD2AE0;
-const func_http_finish = 0x81B950; // this address is way off but in a good direction after wa are able to debug http requests organize this mess
+const func_send_packet_raw = 0xDD2F60;
+const func_send_packet = 0xDD2C70;
+const func_getting_server_address = 0x171D610; //0x171E030; //0x171D160; // 0x171E030
 
 var original_send_send_packet_raw: @TypeOf(&sendPacketRaw) = undefined;
 var original_send_send_packet: @TypeOf(&sendPacket) = undefined;
-var original_http_request: @TypeOf(&http_request) = undefined;
+var original_getting_server_address: @TypeOf(&getting_server_address) = undefined;
+
+// fetch_request
+fn getting_server_address(cpp_header_str: usize, a2: usize, a3: usize, a4: usize, a5: i32) callconv(.C) usize {
+    std.debug.print("Addresses: 0x{X}, 0x{X}\n", .{ cpp_header_str, a2 }); // a2 + 150 seems to be response after call ar 1b0 content data is set
+    while (windows.GetAsyncKeyState(0x23) == 0) {
+        std.Thread.yield() catch unreachable;
+    }
+    const v4 = @as(*usize, @ptrFromInt(a2 + 0x1B8)).*;
+    const body_len = @as(*usize, @ptrFromInt(v4 + 8)).*; // how the fuck to get body??? probably we're off
+    const headers = getCPPStr(cpp_header_str);
+    //std.debug.print("HTTP: content_len: {d}\n", .{content_len});
+    std.debug.print("HTTP: headers: {s}\n", .{headers});
+    //while (windows.GetAsyncKeyState(0x23) == 0) {
+    //std.Thread.yield() catch unreachable;
+    //}
+    const res = original_getting_server_address(cpp_header_str, a2, a3, a4, a5);
+    //std.debug.print("Returned: {d}'\n", .{res}); // 0 mean success
+    if (body_len > 0) {
+        //const body = @as(*[*]u8, @ptrFromInt(a2 + 0x1B0)).*[0..body_len];
+        //std.debug.print("HTTP: body: {s}\n", .{body});
+        //std.debug.print("Address: 0x{X}\n", .{a2});
+    }
+    return res;
+}
 
 pub fn main() !void {
 
@@ -39,7 +63,7 @@ pub fn main() !void {
         return error.MinHookCreateHook;
     }
 
-    if (c.MH_CreateHook(@as(*anyopaque, @ptrFromInt(base + func_http_finish)), @ptrFromInt(@intFromPtr(&http_request)), @ptrFromInt(@intFromPtr(&original_http_request))) != c.MH_OK) {
+    if (c.MH_CreateHook(@as(*anyopaque, @ptrFromInt(base + func_getting_server_address)), @ptrFromInt(@intFromPtr(&getting_server_address)), @ptrFromInt(@intFromPtr(&original_getting_server_address))) != c.MH_OK) {
         return error.MinHookCreateHook;
     }
     defer _ = c.MH_RemoveHook(c.MH_ALL_HOOKS);
@@ -215,13 +239,6 @@ fn sendPacket(packet_type: i32, cpp_str: *anyopaque, peer: *anyopaque) callconv(
     //std.debug.print("sending packet type: {d}, data:\n{s}\n", .{ packet_type, data });
     std.debug.print("\nsending packet type: {d}, data:\n'{s}'\n", .{ packet_type, data });
     return original_send_send_packet(packet_type, cpp_str, peer);
-}
-
-fn http_request(a1: *anyopaque) callconv(.C) *anyopaque {
-    // idk wtf is this prob hooking wrong stuff its void
-    const ret = original_http_request(a1);
-    std.debug.print("have http request 0x{X}, ret: 0x{X}\n", .{ @intFromPtr(a1), @intFromPtr(ret) });
-    return ret;
 }
 
 fn getSendPacketRawAddress(module_info: windows.MODULEINFO) !usize {
